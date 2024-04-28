@@ -249,13 +249,16 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 
 	// Further improvements:
 	// Garbage collect the message cache once in a while. This has been implemented but the lifetime of the entries has been set to be large.
-	// Choose to gossip only consensus-critical messages that may not already be gossiped. E.g. blocks, block parts, votes, etc. How do we know what is consensus-critical?
+	// Choose to gossip only consensus-critical messages that may not already be gossiped. E.g. blocks, block parts, votes, etc. How do we know what is consensus-critical? Gossip only votes because those are all the messages that the freezing gadget checks.
 	// Gossip after basic validation. Need to take care whether basic validation filters out messages we want to gossip.
 
 	if conR.conS.config.EnableFreezingGadget {
-		if !conR.RecentMessageHistory.AlreadySeen(msg) {
-			conR.Switch.Broadcast(e)
-			conR.RecentMessageHistory.Add(msg)
+		switch msg := msg.(type) {
+			case *VoteMessage:
+				if !conR.RecentMessageHistory.AlreadySeen(msg) {
+					conR.Switch.Broadcast(e)
+					conR.RecentMessageHistory.Add(msg)
+				}
 		}
 	}
 
