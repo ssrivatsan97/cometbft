@@ -992,6 +992,9 @@ type ConsensusConfig struct {
 	PeerQueryMaj23SleepDuration time.Duration `mapstructure:"peer_query_maj23_sleep_duration"`
 
 	DoubleSignCheckHeight int64 `mapstructure:"double_sign_check_height"`
+
+	EnableFreezingGadget bool
+	WaitBeforeCommit 	time.Duration
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service
@@ -1011,6 +1014,8 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		PeerGossipSleepDuration:     100 * time.Millisecond,
 		PeerQueryMaj23SleepDuration: 2000 * time.Millisecond,
 		DoubleSignCheckHeight:       int64(0),
+		EnableFreezingGadget: 	  false,
+		WaitBeforeCommit: 		  0 * time.Second,
 	}
 }
 
@@ -1029,6 +1034,8 @@ func TestConsensusConfig() *ConsensusConfig {
 	cfg.PeerGossipSleepDuration = 5 * time.Millisecond
 	cfg.PeerQueryMaj23SleepDuration = 250 * time.Millisecond
 	cfg.DoubleSignCheckHeight = int64(0)
+	cfg.EnableFreezingGadget = false
+	cfg.WaitBeforeCommit = 0 * time.Second
 	return cfg
 }
 

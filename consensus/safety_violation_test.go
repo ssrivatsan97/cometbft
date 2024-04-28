@@ -9,6 +9,7 @@ import (
 	"github.com/cometbft/cometbft/p2p"
 	"github.com/stretchr/testify/require"
 	"github.com/cometbft/cometbft/types"
+	cfg "github.com/cometbft/cometbft/config"
 	cmtcons "github.com/cometbft/cometbft/proto/tendermint/consensus"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
@@ -17,13 +18,17 @@ func TestSafetyViolation(t *testing.T) {
 	// boilerplate for generating a testnet
 	N := 7
 	F := 5 // number of Byzantine validators
-	logger := consensusLogger().With("test", "conflicting_commits")
+	EnableFreezing := true
+	logger := consensusLogger().With("test", "safety_violation")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	app := newKVStore
-	css, cleanup := randConsensusNet(t, N, "consensus_byzantine_test", newMockTickerFunc(false), app)
+	css, cleanup := randConsensusNet(t, N, "safety_violation_test", newMockTickerFunc(false), app, func(c *cfg.Config) {
+		c.Consensus.EnableFreezingGadget = EnableFreezing
+		c.Consensus.WaitBeforeCommit = 2 * time.Second
+	})
 	defer cleanup()
 
 	// give the byzantine validator(s) a normal ticker
@@ -109,10 +114,10 @@ func TestSafetyViolation(t *testing.T) {
 		for _, peer := range peers {
 			// Send one block to peer #5 and another block to peer #6.
 			// Send both blocks to all other peers.
-			if getSwitchIndex(switches, peer) != N - 1 {
+			if getSwitchIndex(switches, peer) != N - 1 { // send to everyone except 6
 				go sendProposalAndParts3(height, round, peer, proposal1, blockParts1)
 			}
-			if getSwitchIndex(switches, peer) != N - 2 {
+			if getSwitchIndex(switches, peer) != N - 1 { // send to everyone except 5
 				go sendProposalAndParts3(height, round, peer, proposal2, blockParts2)
 			}
 		}
@@ -135,7 +140,7 @@ func TestSafetyViolation(t *testing.T) {
 			if getSwitchIndex(switches, peer) != N - 1 {
 				go sendVotes3(blockHash1, blockPartsHeader1, cs, peer)
 			}
-			if getSwitchIndex(switches, peer) != N - 2 {
+			if getSwitchIndex(switches, peer) != N - 1 {
 				go sendVotes3(blockHash2, blockPartsHeader2, cs, peer)
 			}
 		}
@@ -228,8 +233,7 @@ func TestSafetyViolation(t *testing.T) {
 	}
 
 	// Instead of waiting for all validators to commit the first block, we will just wait for a certain amount of time and then observe which blocks have been committed by all validators.
-	tick := time.NewTicker(time.Second * 10)
-	<-tick.C
+	<-time.After(10 * time.Second)
 }
 
 func sendProposalAndParts3(
