@@ -73,6 +73,9 @@ type VoteSet struct {
 	maj23         *BlockID               // First 2/3 majority seen
 	votesByBlock  map[string]*blockVotes // string(blockHash|blockParts) -> blockVotes
 	peerMaj23s    map[P2PID]BlockID      // Maj23 for each peer
+
+	allVotesByBlock map[string]*blockVotes // string(blockHash|blockParts) -> blockVotes, including conflicting ones
+	allMaj23s	  []BlockID			 // All 2/3 majority seen
 }
 
 // NewVoteSet instantiates all fields of a new vote set. This constructor requires
@@ -94,6 +97,9 @@ func NewVoteSet(chainID string, height int64, round int32,
 		maj23:         nil,
 		votesByBlock:  make(map[string]*blockVotes, valSet.Size()),
 		peerMaj23s:    make(map[P2PID]BlockID),
+
+		allVotesByBlock: make(map[string]*blockVotes, valSet.Size()),
+		allMaj23s: make([]BlockID, 0),
 	}
 }
 
@@ -479,6 +485,16 @@ func (voteSet *VoteSet) TwoThirdsMajority() (blockID BlockID, ok bool) {
 		return *voteSet.maj23, true
 	}
 	return BlockID{}, false
+}
+
+// Returns all block IDs that have +2/3 majority
+func (voteSet *VoteSet) AllTwoThirdsMajority() []BlockID {
+	if voteSet == nil {
+		return nil
+	}
+	voteSet.mtx.Lock()
+	defer voteSet.mtx.Unlock()
+	return voteSet.allMaj23s
 }
 
 //--------------------------------------------------------------------------------

@@ -152,6 +152,15 @@ func (hvs *HeightVoteSet) AddVote(vote *types.Vote, peerID p2p.ID, extEnabled bo
 		}
 	}
 	added, err = voteSet.AddVote(vote)
+	
+	commits := hvs.AllHeightCommits()
+	if len(commits) > 1 {
+		fmt.Print("Conflicting commits ")
+		for _, commit := range commits {
+			fmt.Print(commit.Hash)
+		}
+		fmt.Println()
+	}
 	return
 }
 
@@ -216,6 +225,46 @@ func (hvs *HeightVoteSet) SetPeerMaj23(
 		return nil // something we don't know about yet
 	}
 	return voteSet.SetPeerMaj23(types.P2PID(peerID), blockID)
+}
+
+func (hvs *HeightVoteSet) ExistsConflictingCommit(blockID types.BlockID) (bool, types.BlockID) {
+	if blockID.IsZero() {
+		return false, blockID // doesn't matter what the return value is, just returning blockID to satisfy the syntax
+	}
+	hvs.mtx.Lock()
+	defer hvs.mtx.Unlock()
+	for r := range hvs.roundVoteSets {
+		voteSet := hvs.getVoteSet(r, cmtproto.PrecommitType)
+		candidates := voteSet.AllTwoThirdsMajority()
+		for _, candidate := range candidates {
+			if !blockID.Equals(candidate) {
+				return true, candidate
+			}
+		}
+	}
+	return false, blockID
+}
+
+func (hvs *HeightVoteSet) ExistAnyConflictingCommits() bool {
+	hvs.mtx.Lock()
+	defer hvs.mtx.Unlock()
+	numCandidates := 0
+	for r := range hvs.roundVoteSets {
+		voteSet := hvs.getVoteSet(r, cmtproto.PrecommitType)
+		candidates := voteSet.AllTwoThirdsMajority()
+		numCandidates += len(candidates)
+	}
+	return numCandidates > 1
+}
+
+func (hvs *HeightVoteSet) AllHeightCommits() []types.BlockID {
+	allCandidates := make([]types.BlockID, 0)
+	for r := range hvs.roundVoteSets {
+		voteSet := hvs.getVoteSet(r, cmtproto.PrecommitType)
+		candidates := voteSet.AllTwoThirdsMajority()
+		allCandidates = append(allCandidates, candidates...)
+	}
+	return allCandidates
 }
 
 //---------------------------------------------------------
