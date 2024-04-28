@@ -264,8 +264,13 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 		conR.Switch.StopPeerForError(e.Src, err)
 		return
 	}
-
-	conR.Logger.Debug("Receive", "src", e.Src, "chId", e.ChannelID, "msg", msg)
+	// Don't log NewRoundStepMessage, it's too spammy
+	switch msg.(type) {
+		case *NewRoundStepMessage:
+		// Do nothing
+		default:
+			conR.Logger.Debug("Receive", "src", e.Src, "chId", e.ChannelID, "msg", msg)
+	}
 
 	// Get peer states
 	ps, ok := e.Src.Get(types.PeerStateKey).(*PeerState)

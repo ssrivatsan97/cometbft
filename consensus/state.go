@@ -2112,6 +2112,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		"cs_height", cs.Height,
 		"extLen", len(vote.Extension),
 		"extSigLen", len(vote.ExtensionSignature),
+		"block_id", vote.BlockID,
 	)
 
 	if vote.Height < cs.Height || (vote.Height == cs.Height && vote.Round < cs.Round) {
@@ -2311,6 +2312,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 			"height", vote.Height,
 			"round", vote.Round,
 			"validator", vote.ValidatorAddress.String(),
+			"block id", vote.BlockID,
 			"vote_timestamp", vote.Timestamp,
 			"data", precommits.LogString())
 

@@ -272,7 +272,7 @@ func (sw *Switch) OnStop() {
 //
 // NOTE: Broadcast uses goroutines, so order of broadcast may not be preserved.
 func (sw *Switch) Broadcast(e Envelope) chan bool {
-	sw.Logger.Debug("Broadcast", "channel", e.ChannelID)
+	// sw.Logger.Debug("Broadcast", "channel", e.ChannelID)
 
 	peers := sw.peers.List()
 	var wg sync.WaitGroup
