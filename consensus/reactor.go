@@ -61,7 +61,7 @@ func NewReactor(consensusState *State, waitSync bool, options ...ReactorOption) 
 		waitSync: waitSync,
 		rs:       consensusState.GetRoundState(),
 		Metrics:  NopMetrics(),
-		RecentMessageHistory: NewMessageCache(10 * time.Second),
+		RecentMessageHistory: NewMessageCache(2 * time.Second),
 	}
 	conR.BaseReactor = *p2p.NewBaseReactor("Consensus", conR)
 
@@ -1869,11 +1869,8 @@ func (c *MessageCache) Add(message Message) {
 func (c *MessageCache) AlreadySeen(message Message) bool {
     c.mutex.Lock()
     defer c.mutex.Unlock()
-    timestamp, exists := c.messages[message]
-    if !exists {
-        return false
-    }
-    return time.Since(timestamp) <= c.lifetime
+    _, exists := c.messages[message]
+	return exists
 }
 
 // manageExpiration runs in the background to remove expired entries

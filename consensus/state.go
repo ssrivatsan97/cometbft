@@ -1688,6 +1688,8 @@ func (cs *State) tryFinalizeCommit(height int64) {
 				cs.Logger.Error("Conflicting commits detected", "height", height, "commit 1", commits[0].Hash, "commit 2", commits[1].Hash)
 				panic("Conflicting commits detected! Stopping...")
 				// Is panic the right thing to do here? This stops the consensus state, which means it stops the node in the testnet.
+				// For clients to receive the conflicting evidence, the node needs to stay alive.
+				// Broadcasting the conflicting votes had already been initiated, but has it completed? What if the thread broadcasting messages blocked while this node panicked.
 			}
 			cs.finalizeCommit(height)
 		}()
