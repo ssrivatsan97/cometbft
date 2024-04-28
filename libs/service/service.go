@@ -136,11 +136,11 @@ func (bs *BaseService) Start() error {
 			atomic.StoreUint32(&bs.started, 0)
 			return ErrAlreadyStopped
 		}
-		bs.Logger.Info("service start",
-			"msg",
-			log.NewLazySprintf("Starting %v service", bs.name),
-			"impl",
-			bs.impl.String())
+		// bs.Logger.Info("service start",
+		// 	"msg",
+		// 	log.NewLazySprintf("Starting %v service", bs.name),
+		// 	"impl",
+		// 	bs.impl.String())
 		err := bs.impl.OnStart()
 		if err != nil {
 			// revert flag
@@ -149,11 +149,11 @@ func (bs *BaseService) Start() error {
 		}
 		return nil
 	}
-	bs.Logger.Debug("service start",
-		"msg",
-		log.NewLazySprintf("Not starting %v service -- already started", bs.name),
-		"impl",
-		bs.impl)
+	// bs.Logger.Debug("service start",
+	// 	"msg",
+	// 	log.NewLazySprintf("Not starting %v service -- already started", bs.name),
+	// 	"impl",
+	// 	bs.impl)
 	return ErrAlreadyStarted
 }
 
