@@ -152,15 +152,6 @@ func (hvs *HeightVoteSet) AddVote(vote *types.Vote, peerID p2p.ID, extEnabled bo
 		}
 	}
 	added, err = voteSet.AddVote(vote)
-	
-	commits := hvs.AllHeightCommits()
-	if len(commits) > 1 {
-		fmt.Print("Conflicting commits ")
-		for _, commit := range commits {
-			fmt.Print(commit.Hash)
-		}
-		fmt.Println()
-	}
 	return
 }
 
@@ -258,6 +249,8 @@ func (hvs *HeightVoteSet) ExistAnyConflictingCommits() bool {
 }
 
 func (hvs *HeightVoteSet) AllHeightCommits() []types.BlockID {
+	hvs.mtx.Lock()
+	defer hvs.mtx.Unlock()
 	allCandidates := make([]types.BlockID, 0)
 	for r := range hvs.roundVoteSets {
 		voteSet := hvs.getVoteSet(r, cmtproto.PrecommitType)

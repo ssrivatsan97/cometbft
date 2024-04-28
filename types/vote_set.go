@@ -286,6 +286,26 @@ func (voteSet *VoteSet) addVerifiedVote(
 		voteSet.sum += votingPower
 	}
 
+	quorum := voteSet.valSet.TotalVotingPower()*2/3 + 1
+
+	allVotesByBlock, ok := voteSet.allVotesByBlock[blockKey]
+
+	// Add to allVotesByBlock anyway whether conflicting or not
+	if !ok {
+		allVotesByBlock = newBlockVotes(false, voteSet.valSet.Size())
+		voteSet.allVotesByBlock[blockKey] = allVotesByBlock
+	}
+	
+	// Check if block exceeds 2/3 quorum and update allMaj23s
+	origSum := allVotesByBlock.sum
+
+	allVotesByBlock.addVerifiedVote(vote, votingPower)
+
+	// If we just crossed the quorum threshold and have 2/3 majority...
+	if origSum < quorum && quorum <= allVotesByBlock.sum {
+		voteSet.allMaj23s = append(voteSet.allMaj23s, vote.BlockID)
+	}
+
 	votesByBlock, ok := voteSet.votesByBlock[blockKey]
 	if ok {
 		if conflicting != nil && !votesByBlock.peerMaj23 {
@@ -308,8 +328,8 @@ func (voteSet *VoteSet) addVerifiedVote(
 	}
 
 	// Before adding to votesByBlock, see if we'll exceed quorum
-	origSum := votesByBlock.sum
-	quorum := voteSet.valSet.TotalVotingPower()*2/3 + 1
+	origSum = votesByBlock.sum
+	quorum = voteSet.valSet.TotalVotingPower()*2/3 + 1
 
 	// Add vote to votesByBlock
 	votesByBlock.addVerifiedVote(vote, votingPower)

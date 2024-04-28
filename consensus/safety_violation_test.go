@@ -117,7 +117,7 @@ func TestSafetyViolation(t *testing.T) {
 			if getSwitchIndex(switches, peer) != N - 1 { // send to everyone except 6
 				go sendProposalAndParts3(height, round, peer, proposal1, blockParts1)
 			}
-			if getSwitchIndex(switches, peer) != N - 1 { // send to everyone except 5
+			if getSwitchIndex(switches, peer) != N - 2 { // send to everyone except 5
 				go sendProposalAndParts3(height, round, peer, proposal2, blockParts2)
 			}
 		}
@@ -140,7 +140,7 @@ func TestSafetyViolation(t *testing.T) {
 			if getSwitchIndex(switches, peer) != N - 1 {
 				go sendVotes3(blockHash1, blockPartsHeader1, cs, peer)
 			}
-			if getSwitchIndex(switches, peer) != N - 1 {
+			if getSwitchIndex(switches, peer) != N - 2 {
 				go sendVotes3(blockHash2, blockPartsHeader2, cs, peer)
 			}
 		}
