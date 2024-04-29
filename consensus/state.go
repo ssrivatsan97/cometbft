@@ -1931,6 +1931,39 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 	cs.metrics.CommittedHeight.Set(float64(block.Height))
 }
 
+func (cs *State) RecoveryFunc() {
+	cs.Logger.Debug("Recovery function started at time " + time.Now().String())
+	// get new validator set to count bookmark votes 
+	// Update the validator set after the state update of the new commits
+	newValidatorSet := cs.config.RecoveryValidatorSet.Copy()
+
+	// Broadcast "bookmark message"
+	bkmarkMessage := cs.GenerateBookmarkMessage() // hard
+	// Question: What should the bookmark message contain? Ideally, everything needed to commit the missing block.
+	// How should a bookmark message be encoded? Is there a particular encoding required by the p2p network?
+
+	// The only way to broadcast a message is through the reactor
+	// The only way to send a message to the reactor is by firing an event (event switch) that will then be read by the reactor.
+	cs.BroadcastBookmarkMessage(bkmarkMessage) // very hard :(
+
+	// Wait for 2 seconds to receive all bookmarks
+	go func() {
+		<-time.After(cs.config.WaitBeforeCommit)
+
+		// Meanwhile handle incoming bookmark messages and record them (this has to be done in reactor and handleMsg) (hard)
+
+		// Decide which block and height to commit (easy)
+
+		// Commit the block (update the state) (hard)
+
+		// Update the new validator set, make sure this update doesn't get reset when the next block is committed (hard)
+	}
+}
+
+func (cs *State) BroadcastBookmarkMessage(bkmarkMessage BookmarkMessage) {
+	
+}
+
 //-----------------------------------------------------------------------------
 
 func (cs *State) defaultSetProposal(proposal *types.Proposal) error {

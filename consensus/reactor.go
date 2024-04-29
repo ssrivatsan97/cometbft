@@ -523,6 +523,27 @@ func (conR *Reactor) broadcastHasVoteMessage(vote *types.Vote) {
 	*/
 }
 
+func (conR *Reactor) broadcastBookmarkMessage(bookmark *types.Bookmark) {
+	msg := &cmtcons.Bookmark{
+		Height: bookmark.Height,
+		BlockID: bookmark.BlockID,
+		Block: types.Block{
+			Header: bookmark.Block.Header,
+			Data: bookmark.Block.Data,
+			Evidence: bookmark.Block.Evidence,
+			LastCommit: bookmark.Block.LastCommit,
+		},
+		ValidatorAddress: bookmark.ValidatorAddress,
+		ValidatorIndex: bookmark.ValidatorIndex,
+		Signature: bookmark.Signature,
+	}
+	conR.Switch.Broadcast(p2p.Envelope{
+		ChannelID: StateChannel,
+		Message:   msg,
+	})
+	// Also broadcast block parts here...
+}
+
 func makeRoundStepMessage(rs *cstypes.RoundState) (nrsMsg *cmtcons.NewRoundStep) {
 	nrsMsg = &cmtcons.NewRoundStep{
 		Height:                rs.Height,

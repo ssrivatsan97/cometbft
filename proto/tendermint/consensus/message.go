@@ -17,6 +17,7 @@ var _ p2p.Wrapper = &NewValidBlock{}
 var _ p2p.Wrapper = &NewRoundStep{}
 var _ p2p.Wrapper = &HasVote{}
 var _ p2p.Wrapper = &BlockPart{}
+var _ p2p.Wrapper = &Bookmark{}
 
 func (m *VoteSetBits) Wrap() proto.Message {
 	cm := &Message{}
@@ -73,10 +74,18 @@ func (m *NewRoundStep) Wrap() proto.Message {
 	return cm
 }
 
+func (m *Bookmark) Wrap() proto.Message {
+	cm := &Message{}
+	cm.Sum = &Message_Bookmark{Bookmark: m}
+	return cm
+}
+
 // Unwrap implements the p2p Wrapper interface and unwraps a wrapped consensus
 // proto message.
 func (m *Message) Unwrap() (proto.Message, error) {
 	switch msg := m.Sum.(type) {
+	case *Message_Bookmark:
+		return m.GetBookmark(), nil
 	case *Message_NewRoundStep:
 		return m.GetNewRoundStep(), nil
 

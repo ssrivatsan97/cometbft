@@ -176,3 +176,16 @@ message TxProof {
   bytes                   data      = 2;
   tendermint.crypto.Proof proof     = 3;
 }
+
+// Bookmark used during recovery
+message Bookmark {
+  int64         height   = 1;
+  BlockID       block_id = 2
+      [(gogoproto.nullable) = false, (gogoproto.customname) = "BlockID"];  // zero if vote is nil.
+  Block         block = 3;
+  bytes validator_address = 4;
+  int32 validator_index   = 5;
+  // Vote signature by the validator if they participated in consensus for the
+  // associated block.
+  bytes signature = 6;
+}
