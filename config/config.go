@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cometbft/cometbft/version"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -995,6 +996,8 @@ type ConsensusConfig struct {
 
 	EnableFreezingGadget bool
 	WaitBeforeCommit 	time.Duration
+	RecoveryTime       time.Time
+	RecoveryValidatorSet *types.ValidatorSet
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service

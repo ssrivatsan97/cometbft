@@ -144,6 +144,11 @@ type State struct {
 
 	// offline state sync height indicating to which height the node synced offline
 	offlineStateSyncHeight int64
+
+	// bookmark that will be used during recovery
+	// TODO: Is it enough to bookmark just the last block? Or do we need more than one block?
+	bookmarkHeight int64
+	bookmarkBlock  *types.Block // Instead of storing the whole block, we could store just the hash
 }
 
 // StateOption sets an optional parameter on the State.
@@ -1678,6 +1683,11 @@ func (cs *State) tryFinalizeCommit(height int64) {
 		return
 	}
 
+	// Since we are ready to finalize, we can first bookmark this height and block.
+	// Since tryFinalizeCommit is only called once per height, we do not have to worry about conflicting bookmarks.
+	cs.bookmarkHeight = height
+	cs.bookmarkBlock = cs.ProposalBlock
+
 	// Wait for cs.Config.WaitBeforeCommit to pass before committing the block.
 	
 	if cs.config.EnableFreezingGadget {
@@ -1686,10 +1696,21 @@ func (cs *State) tryFinalizeCommit(height int64) {
 			commits := cs.Votes.AllHeightCommits()
 			if len(commits) > 1 {
 				cs.Logger.Error("Conflicting commits detected", "height", height, "commit 1", commits[0].Hash, "commit 2", commits[1].Hash)
-				panic("Conflicting commits detected! Stopping...")
+				// panic("Conflicting commits detected! Stopping...")
 				// Is panic the right thing to do here? This stops the consensus state, which means it stops the node in the testnet.
 				// For clients to receive the conflicting evidence, the node needs to stay alive.
 				// Broadcasting the conflicting votes had already been initiated, but has it completed? What if the thread broadcasting messages blocked while this node panicked.
+
+				// Instead of panic, if we just return here, the node will continue to run, but the conflicting commits will not be finalized. The node will be stuck at this height, until recovery.
+				// Before returning, we will set the recovery function to start at the recovery time.
+				// Although the recovery time is hardcoded in the config in this prototype, it should be recieved as an external interrupt in production.
+				// If recovery time is not or it happened before the conflict was detected, panic
+				if cs.config.RecoveryTime.IsZero() || time.Now().After(cs.config.RecoveryTime) {
+					cs.Logger.Error("Recovery time was " + cs.config.RecoveryTime.String() + " and current time is " + time.Now().String())
+					panic("Recovery time is not set or has passed. Stopping...")
+				}
+				time.AfterFunc(time.Until(cs.config.RecoveryTime), cs.RecoveryFunc)
+				return
 			}
 			cs.finalizeCommit(height)
 		}()
