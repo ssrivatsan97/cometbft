@@ -244,13 +244,11 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 	}
 
 	// Unconditional gossip here
-	// How to avoid infinite gossip?
-	// Need to check if we have already received this message. Maintain a state of what messages we have seen so far.
+	// How to avoid infinite gossip? Check if we have already received this message. Maintain a state of what messages we have seen so far.
 
-	// Further improvements:
-	// Garbage collect the message cache once in a while. This has been implemented but the lifetime of the entries has been set to be large.
-	// Choose to gossip only consensus-critical messages that may not already be gossiped. E.g. blocks, block parts, votes, etc. How do we know what is consensus-critical? Gossip only votes because those are all the messages that the freezing gadget checks.
-	// Gossip after basic validation. Need to take care whether basic validation filters out messages we want to gossip.
+	// Expire old entried in the message cache once in a while. This has been implemented but the lifetime of the entries has been set to be large.
+	// Choose to gossip only consensus-critical messages that may not already be gossiped. In this case, we only need Precommit messages.
+	// Gossip after basic validation.
 
 	if conR.conS.config.EnableFreezingGadget {
 		switch msg := msg.(type) {
@@ -1854,7 +1852,7 @@ func NewMessageCache(lifetime time.Duration) *MessageCache {
         messages: make(map[Message]time.Time),
         lifetime: lifetime,
     }
-    // go cache.manageExpiration()
+    go cache.manageExpiration()
     return cache
 }
 

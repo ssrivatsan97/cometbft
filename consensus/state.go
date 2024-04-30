@@ -1687,7 +1687,7 @@ func (cs *State) tryFinalizeCommit(height int64) {
 			if len(commits) > 1 {
 				cs.Logger.Error("Conflicting commits detected", "height", height, "commit 1", commits[0].Hash, "commit 2", commits[1].Hash)
 				panic("Conflicting commits detected! Stopping...")
-				// Is panic the right thing to do here? This stops the consensus state, which means it stops the node in the testnet.
+				// This stops the consensus state, which means it stops the node in the testnet.
 			}
 			cs.finalizeCommit(height)
 		}()
@@ -2221,13 +2221,6 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 
 	height := cs.Height
 	added, err = cs.Votes.AddVote(vote, peerID, extEnabled)
-	
-	// Log if this vote resulted in two conflicting commits
-	// commits := cs.Votes.AllHeightCommits()
-	// if len(commits) > 1 {
-	// 	cs.Logger.Debug("Conflicting commits detected", "height", height, "commit 1", commits[0].Hash, "commit 2", commits[1].Hash)
-	// }
-	
 	if !added {
 		// Either duplicate, or error upon cs.Votes.AddByIndex()
 
