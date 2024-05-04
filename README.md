@@ -1,3 +1,9 @@
+This fork of CometBFT implements a freezing gadget to prevent two nodes from finalizing conflicting blocks at the same height, i.e., prevents safety violations. It does so by gossiping all precommit messages, waiting before finalizing a commit, and stopping finalizing if conflicts are detected.
+
+This fork also implements a recovery gadget which recovers liveness of the protocol without losing safety, once the validator set is reconfigured externally to restore honest supermajority.
+
+This is a prototype implementation and is work in progress. It is NOT production-ready! For the theory details, see our paper [https://eprint.iacr.org/2023/1556](https://eprint.iacr.org/2023/1556).
+
 # CometBFT
 
 [Byzantine-Fault Tolerant][bft] [State Machine Replication][smr]. Or
