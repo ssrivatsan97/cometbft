@@ -149,6 +149,8 @@ type State struct {
 	// TODO: Is it enough to bookmark just the last block? Or do we need more than one block?
 	bookmarkHeight int64
 	bookmarkBlock  *types.Block // Instead of storing the whole block, we could store just the hash
+
+	alreadyRecovered bool
 }
 
 // StateOption sets an optional parameter on the State.
@@ -179,6 +181,9 @@ func NewState(
 		evpool:           evpool,
 		evsw:             cmtevents.NewEventSwitch(),
 		metrics:          NopMetrics(),
+		bookmarkHeight:   0,
+		bookmarkBlock:    nil,
+		alreadyRecovered: false,
 	}
 	for _, option := range options {
 		option(cs)
@@ -1701,15 +1706,8 @@ func (cs *State) tryFinalizeCommit(height int64) {
 				// For clients to receive the conflicting evidence, the node needs to stay alive.
 				// Broadcasting the conflicting votes had already been initiated, but has it completed? What if the thread broadcasting messages blocked while this node panicked.
 
-				// Instead of panic, if we just return here, the node will continue to run, but the conflicting commits will not be finalized. The node will be stuck at this height, until recovery.
-				// Before returning, we will set the recovery function to start at the recovery time.
-				// Although the recovery time is hardcoded in the config in this prototype, it should be recieved as an external interrupt in production.
-				// If recovery time is not or it happened before the conflict was detected, panic
-				if cs.config.RecoveryTime.IsZero() || time.Now().After(cs.config.RecoveryTime) {
-					cs.Logger.Error("Recovery time was " + cs.config.RecoveryTime.String() + " and current time is " + time.Now().String())
-					panic("Recovery time is not set or has passed. Stopping...")
-				}
-				time.AfterFunc(time.Until(cs.config.RecoveryTime), cs.RecoveryFunc)
+				// Instead of panic, if we just return here, the node will continue to run, but the conflicting commits will not be finalized. Since no block is finalized at this height, the node will not move to the next height, nor will any further rounds be entered for this height. The node will be stuck at this height, until recovery.
+				
 				return
 			}
 			cs.finalizeCommit(height)
@@ -1840,6 +1838,92 @@ func (cs *State) finalizeCommit(height int64) {
 	// * cs.Height has been increment to height+1
 	// * cs.Step is now cstypes.RoundStepNewHeight
 	// * cs.StartTime is set to when we will start round0.
+}
+
+
+func (cs *State) GetFullBookmark() *types.FullBookmark {
+	bmheight := cs.bookmarkHeight
+	// first, let's test sending just the last bookmarked block
+	// the last bookmarked block may or may not have been committed yet. If it's not committed yet, it needs to be obtained from the state. If it's committed, it can be obtained from the blockstore.
+
+	// First collect all but the last bookmarked block.
+	allBlocks := make([]*types.Block, 0, bmheight)
+	allBlockCommits := make([]*types.Commit, 0, bmheight)
+
+	for h := int64(1); h <= bmheight; h++ {
+		if h >= cs.Height {
+			if h != bmheight {
+				cs.Logger.Error("Didn't expect that cs.Height is less than bookmarked height", "cs.Height", cs.Height, "bookmark height", bmheight)
+			}
+
+			// Case when the last bookmarked block is not committed
+			lastBlock := cs.bookmarkBlock
+			allBlocks = append(allBlocks, lastBlock)
+			allBlockCommits = append(allBlockCommits, lastBlock.LastCommit)
+			allBlockCommits = append(allBlockCommits, cs.Votes.Precommits(cs.CommitRound).MakeExtendedCommit(cs.state.ConsensusParams.ABCI).ToCommit())
+		} else {
+			block := cs.blockStore.LoadBlock(h)
+			if block == nil {
+				cs.Logger.Error("Block not found in blockstore", "height", h)
+			}
+			allBlocks = append(allBlocks, block)
+			if h < cs.Height - 1 { 
+				commits := cs.blockStore.LoadBlockCommit(h)
+				if commits == nil {
+					cs.Logger.Error("Block commit not found in blockstore", "height", h)
+				}
+				allBlockCommits = append(allBlockCommits, commits)
+			}
+		}
+	}
+
+	address := cs.privValidatorPubKey.Address()
+	valIdx, _ := cs.Validators.GetByAddress(address)
+	return &types.FullBookmark{
+		Height: bmheight,
+		AllBlocks: allBlocks,
+		AllBlockCommits: allBlockCommits,
+		ValidatorIndex: valIdx,
+		ValidatorAddress: address,
+	}
+}
+
+
+func (cs *State) decideBlocksToCommit(receivedBookmarks []*types.FullBookmark, newValSet *types.ValidatorSet) (bool, []*types.Block, []*types.Commit) {
+	// Assume no duplicates in the bookmarks and only one per validator
+	// Also assume that bookmarks are valid
+	var newCommitHeight int64
+	blocksToCommit := make([]*types.Block, 0)
+	commitsToCommit := make([]*types.Commit, 0)
+	ready := false
+	
+	for i, newBookmark := range receivedBookmarks {
+		cs.Logger.Debug("Bookmark", "number", i, "height", newBookmark.Height, "last block", newBookmark.AllBlocks[len(newBookmark.AllBlocks) - 1].Hash())
+		if newBookmark.Height <= newCommitHeight {
+			cs.Logger.Debug("Height already committed", "height", newBookmark.Height)
+			continue
+		}
+		var prefixCount int64 = 0
+		for j, otherBookmark := range receivedBookmarks {
+			if newBookmark.IsPrefixOf(otherBookmark) {
+				cs.Logger.Debug("Bookmark", "number", i, "is prefix of bookmark", "number", j)
+				_, val := newValSet.GetByAddress(otherBookmark.ValidatorAddress)
+				if val != nil {
+					cs.Logger.Debug("Counting vote for bookmark", "number", i)
+					prefixCount += val.VotingPower
+				}
+			}
+		}
+		cs.Logger.Debug("Bookmark", "number", i, "has prefix count", prefixCount, "total voting power", newValSet.TotalVotingPower())
+		if prefixCount > newValSet.TotalVotingPower() / 2.0 {
+			cs.Logger.Debug("Bookmark", "number", i, "is ready to be committed")
+			ready = true
+			newCommitHeight = newBookmark.Height
+			blocksToCommit = newBookmark.AllBlocks[cs.Height - 1:] // To check if this indexing is correct
+			commitsToCommit = newBookmark.AllBlockCommits[cs.Height - 1:]
+		}
+	}
+	return ready, blocksToCommit, commitsToCommit
 }
 
 func (cs *State) recordMetrics(height int64, block *types.Block) {
