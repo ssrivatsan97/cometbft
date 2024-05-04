@@ -149,8 +149,6 @@ type State struct {
 	// TODO: Is it enough to bookmark just the last block? Or do we need more than one block?
 	bookmarkHeight int64
 	bookmarkBlock  *types.Block // Instead of storing the whole block, we could store just the hash
-
-	alreadyRecovered bool
 }
 
 // StateOption sets an optional parameter on the State.
@@ -183,7 +181,6 @@ func NewState(
 		metrics:          NopMetrics(),
 		bookmarkHeight:   0,
 		bookmarkBlock:    nil,
-		alreadyRecovered: false,
 	}
 	for _, option := range options {
 		option(cs)
@@ -1700,7 +1697,7 @@ func (cs *State) tryFinalizeCommit(height int64) {
 			<-time.After(cs.config.WaitBeforeCommit)
 			commits := cs.Votes.AllHeightCommits()
 			if len(commits) > 1 {
-				cs.Logger.Error("Conflicting commits detected", "height", height, "commit 1", commits[0].Hash, "commit 2", commits[1].Hash)
+				cs.Logger.Error("Conflicting commits detected", "height", height, "commit 1", commits[0].Hash, "commit 2", commits[1].Hash, "bookmark height", cs.bookmarkHeight, "bookmark block", cs.bookmarkBlock.Hash())
 				// panic("Conflicting commits detected! Stopping...")
 				// Is panic the right thing to do here? This stops the consensus state, which means it stops the node in the testnet.
 				// For clients to receive the conflicting evidence, the node needs to stay alive.
@@ -1895,7 +1892,6 @@ func (cs *State) decideBlocksToCommit(receivedBookmarks []*types.FullBookmark, n
 	var newCommitHeight int64
 	blocksToCommit := make([]*types.Block, 0)
 	commitsToCommit := make([]*types.Commit, 0)
-	ready := false
 	
 	for i, newBookmark := range receivedBookmarks {
 		cs.Logger.Debug("Bookmark", "number", i, "height", newBookmark.Height, "last block", newBookmark.AllBlocks[len(newBookmark.AllBlocks) - 1].Hash())
@@ -1917,13 +1913,128 @@ func (cs *State) decideBlocksToCommit(receivedBookmarks []*types.FullBookmark, n
 		cs.Logger.Debug("Bookmark", "number", i, "has prefix count", prefixCount, "total voting power", newValSet.TotalVotingPower())
 		if prefixCount > newValSet.TotalVotingPower() / 2.0 {
 			cs.Logger.Debug("Bookmark", "number", i, "is ready to be committed")
-			ready = true
-			newCommitHeight = newBookmark.Height
 			blocksToCommit = newBookmark.AllBlocks[cs.Height - 1:] // To check if this indexing is correct
 			commitsToCommit = newBookmark.AllBlockCommits[cs.Height - 1:]
+			return true, blocksToCommit, commitsToCommit
 		}
 	}
-	return ready, blocksToCommit, commitsToCommit
+	return false, blocksToCommit, commitsToCommit
+}
+
+
+func (cs *State) FinalizeForRecovery(blocksToCommit []*types.Block, commitsToCommit []*types.Commit) {
+	// Temporarily stop processing other messages...
+
+
+	for i, block := range blocksToCommit {
+		blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
+		if err != nil {
+			panic(fmt.Sprintf("failed to make part set for block %v: %v", block.Height, err))
+		}
+
+		if err := cs.blockExec.ValidateBlock(cs.state, block); err != nil {
+			panic(fmt.Errorf("+2/3 committed an invalid block: %w", err))
+		}
+
+		// Save to blockStore.
+		if cs.blockStore.Height() < block.Height {
+			// NOTE: the seenCommit is local justification to commit this block,
+			// but may differ from the LastCommit included in the next block
+			// seenExtendedCommit := cs.Votes.Precommits(cs.CommitRound).MakeExtendedCommit(cs.state.ConsensusParams.ABCI)
+			if cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(block.Height) {
+				// cs.blockStore.SaveBlockWithExtendedCommit(block, blockParts, seenExtendedCommit)
+				cs.Logger.Error("Vote extensions are not yet supported during recovery")
+			} else {
+				cs.blockStore.SaveBlock(block, blockParts, commitsToCommit[i])
+				cs.Logger.Debug("Saved block", "height", block.Height, "hash", block.Hash())
+			}
+		} else {
+			// Happens during replay if we already saved the block but didn't commit
+			cs.Logger.Debug("calling finalizeCommit on already stored block", "height", block.Height)
+		}
+
+		// Write EndHeightMessage{} for this height, implying that the blockstore
+		// has saved the block.
+		//
+		// If we crash before writing this EndHeightMessage{}, we will recover by
+		// running ApplyBlock during the ABCI handshake when we restart.  If we
+		// didn't save the block to the blockstore before writing
+		// EndHeightMessage{}, we'd have to change WAL replay -- currently it
+		// complains about replaying for heights where an #ENDHEIGHT entry already
+		// exists.
+		//
+		// Either way, the State should not be resumed until we
+		// successfully call ApplyBlock (ie. later here, or in Handshake after
+		// restart).
+		endMsg := EndHeightMessage{block.Height}
+		if err := cs.wal.WriteSync(endMsg); err != nil { // NOTE: fsync
+			panic(fmt.Sprintf(
+				"failed to write %v msg to consensus WAL due to %v; check your file system and restart the node",
+				endMsg, err,
+			))
+		}
+		cs.Logger.Debug("Wrote end height message", "height", block.Height)
+
+		// Create a copy of the state for staging and an event cache for txs.
+		stateCopy := cs.state.Copy()
+
+		// Execute and commit the block, update and save the state, and update the mempool.
+		// NOTE The block.AppHash wont reflect these txs until the next block.
+		stateCopy, err = cs.blockExec.ApplyBlock(
+			stateCopy,
+			types.BlockID{
+				Hash:          block.Hash(),
+				PartSetHeader: blockParts.Header(),
+			},
+			block,
+		)
+		if err != nil {
+			panic(fmt.Sprintf("failed to apply block; error %v", err))
+		}
+		cs.Logger.Debug("Applied block", "height", block.Height, "hash", block.Hash())
+
+		// must be called before we update state
+		cs.recordMetrics(block.Height, block)
+		cs.Logger.Debug("Recorded metrics", "height", block.Height)
+
+		// NewHeightStep!
+		cs.updateToState(stateCopy)
+		cs.Logger.Debug("Updated to state", "height", block.Height)
+
+		// Private validator might have changed it's key pair => refetch pubkey.
+		if err := cs.updatePrivValidatorPubKey(); err != nil {
+			cs.Logger.Error("failed to get private validator pubkey", "err", err)
+		}
+		cs.Logger.Debug("Updated private validator pubkey", "height", block.Height)
+
+		// cs.StartTime is already set.
+		// Schedule Round0 to start soon.
+		cs.scheduleRound0(&cs.RoundState)
+		cs.Logger.Debug("Scheduled round 0", "height", block.Height)
+
+		// By here,
+		// * cs.Height has been increment to height+1
+		// * cs.Step is now cstypes.RoundStepNewHeight
+		// * cs.StartTime is set to when we will start round0.
+	}
+}
+
+
+
+
+func (cs *State) RecoverAfterFreezing(receivedBookmarks []*types.FullBookmark, newValSet *types.ValidatorSet) {
+	cs.Logger.Debug("Received bookmarks and new validator set for recovery", "num_bookmarks", len(receivedBookmarks), "new_validator_set_size", newValSet.Size())
+	ready, blocksToCommit, commitsToCommit := cs.decideBlocksToCommit(receivedBookmarks, newValSet)
+	if !ready {
+		cs.Logger.Error("Not ready to commit blocks")
+		// Ideally, we should try again after some time
+		return
+	}
+	cs.Logger.Debug("Ready to commit blocks", "num_blocks_to_commit", len(blocksToCommit))
+
+	cs.FinalizeForRecovery(blocksToCommit, commitsToCommit)
+
+	// All new blocks committed for recovery. Now update the validator set to continue the protocol.
 }
 
 func (cs *State) recordMetrics(height int64, block *types.Block) {
